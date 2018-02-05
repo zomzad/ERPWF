@@ -42,17 +42,17 @@ namespace ERPWF
         private bool _firstTimeSig;
         #endregion
 
-        public void BatchAddWFData()
+        public void BatchAddWfData()
         {
             List<EntityBatch.NewWFFlow> wFnoList = _connUSerpStr.EditNewWFFlow(NewWFFlowParaList);
 
-            foreach (var wfno in wFnoList)
-            {
-                #region - 新增聯絡單 -
-                AddSignFormParaList.Add(new SignForm
+            AddSignFormParaList.AddRange(
+                from wf in wFnoList
+                join sign in BatchSignFormList on wf.SignFormNo equals sign.SignFormNO
+                select new SignForm
                 {
                     SignFormNO = string.IsNullOrWhiteSpace(sign.SignFormNO) ? DBNull.Value.ToString() : sign.SignFormNO,
-                    SignFormWFNO = wfno,
+                    SignFormWFNO = wf.WFNo,
                     SignFormType = string.IsNullOrWhiteSpace(sign.SignFormType) ? DBNull.Value.ToString() : sign.SignFormType,
                     IsDisable = sign.IsDisable,
                     SignFormSubject = string.IsNullOrWhiteSpace(sign.SignFormSubject) ? DBNull.Value.ToString() : sign.SignFormSubject,
@@ -70,8 +70,6 @@ namespace ERPWF
                     UpdUserID = string.IsNullOrWhiteSpace(ConvertUserIDLength(sign.UpdUserID)) ? DBNull.Value.ToString() : ConvertUserIDLength(sign.UpdUserID),
                     UPDDT = sign.UPDDT
                 });
-                #endregion
-            }
         }
 
         #region - 取得聯絡單簽核單所有必需資料 -
@@ -145,7 +143,7 @@ namespace ERPWF
                     Console.Clear();
                 }
 
-                BatchAddWFData();
+                BatchAddWfData();
             }
         }
         #endregion

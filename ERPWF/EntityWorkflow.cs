@@ -7,15 +7,19 @@ using System.Text;
 
 namespace ERPWF
 {
-    public class EntityTEST
+    public class EntityWorkflow
     {
         private readonly string _conn;
 
-        public EntityTEST(string connStr)
+        public EntityWorkflow(string connStr)
         {
             _conn = connStr;
         }
 
+        /// <summary>
+        /// 取得SERP簽核單、ERP簽核名單、ERP聯絡單、EPR聯絡單LOG
+        /// </summary>
+        /// <returns></returns>
         public DataSet GetSerpSignFormInfoList()
         {
             DataSet ds = new DataSet();
@@ -48,24 +52,27 @@ namespace ERPWF
                 "  JOIN recm96a CM96A",
                 "    ON CM96A.r96a_form = CM93.rec93_form",
                 " WHERE CM93.rec93_formno = '2'",
+                //"   AND CM93.rec93_form = '17110001'",//指定單號
                 " ORDER BY SignFormNO DESC;",
 
-                //取得取得OPAGM20 & 索引
+                //包含姓名的簽核清單 並建立索引
                 "SELECT stfn_stfn",
                 "     , stfn_cname",
                 "  INTO #IdxOpagm20",
                 "  FROM opagm20",
 
-                //包含姓名的簽核清單 並建立索引
                 "SELECT stfn_cname AS stfnCname",
                 "     , rec94_fsts AS rec94Fsts",
                 "     , rec94_stfn AS rec94Stfn",
                 "     , rec94_form AS rec94Form",
+                "     , rec94_no AS rec94NO",
                 "  INTO #REC94",
                 "  FROM recm94",
                 "  JOIN #IdxOpagm20",
                 "    ON stfn_stfn = rec94_stfn",
-                " GROUP BY stfn_cname,rec94_stfn,rec94_form,rec94_fsts;",
+                //" WHERE recm94.rec94_form = '17110001'",//指定單號
+                " GROUP BY stfn_cname,rec94_stfn,rec94_form,rec94_fsts,rec94_no",
+                " ORDER BY rec94_fsts,rec94_no;",
                 "SELECT * FROM #REC94;",
 
                 //簽核單限定在聯絡單
@@ -80,6 +87,7 @@ namespace ERPWF
                 "  INTO #LOGRECM93",
                 "  FROM logrecm93",
                 "  WHERE logrecm93.lrec93_form IN (SELECT rec93_form FROM #REC93)",
+                //"    AND logrecm93.lrec93_form = '17110001'",
                 "SELECT * FROM #LOGRECM93"
             }));
 
@@ -244,6 +252,7 @@ namespace ERPWF
             public string FlowID { get; set; }
             public string FlowVer { get; set; }
             public string Subject { get; set; }
+            public string SignFormNo { get; set; }
         }
 
         public class NewWFFlow
@@ -648,6 +657,538 @@ namespace ERPWF
                 }
             }
             return tableRow.ToList<AddDocumentResult>().ToList().SingleOrDefault();
+        }
+        #endregion
+
+        #region - 編輯簽核名單 -
+        /// <summary>
+        /// 編輯簽核名單
+        /// </summary>
+        public class SetWFSignaturePara
+        {
+            public string WFNo { get; set; }
+            public bool IsStartSig { get; set; }
+            public string UpdUserID { get; set; }
+            public List<SetSigValue> WFSigList { get; set; }
+        }
+
+        public class SetSigValue
+        {
+            public int SigStep { get; set; }
+            public string WFSigSeq { get; set; }
+            public string SigUserID { get; set; }
+            public string UpdUserID { get; set; }
+        }
+
+        public class SetWFSignatureResult
+        {
+            public string Result { get; set; }
+        }
+
+        public SetWFSignatureResult SetWFSignature(SetWFSignaturePara para)
+        {
+            DataTable setWfSigInfo = new DataTable();
+            StringBuilder command = new StringBuilder();
+
+            foreach (SetSigValue nodeNewUserPara in para.WFSigList)
+            {
+                command.AppendLine(string.Join(Environment.NewLine, new object[]
+                {
+                    " INSERT INTO @WF_SIG_LIST",
+                    "      ( SIG_STEP",
+                    "      , WF_SIG_SEQ",
+                    "      , SIG_USER_ID",
+                    "      , UPD_USER_ID",
+                    "      ) ",
+                    " VALUES",
+                    "      ( '" + nodeNewUserPara.SigStep + "'",
+                    "      , '" + nodeNewUserPara.WFSigSeq + "'",
+                    "      , '" + nodeNewUserPara.SigUserID + "'",
+                    "      , '" + para.UpdUserID + "'",
+                    "      );"
+                }));
+            }
+
+            var commandSetSignature = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "DECLARE @WF_SIG_LIST WF_SIG_TYPE",
+                command.ToString(),
+                "EXECUTE dbo.SP_WF_SET_SIGNATURE @WF_NO, @IS_START_SIG, @UPD_USER_ID, @WF_SIG_LIST;"
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandSetSignature.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@WF_NO", para.WFNo);
+                    cmd.Parameters.AddWithValue("@IS_START_SIG", para.IsStartSig);
+                    cmd.Parameters.AddWithValue("@UPD_USER_ID", para.UpdUserID);
+                    SqlDataAdapter adapter = new SqlDataAdapter(cmd);
+                    adapter.Fill(setWfSigInfo);
+                }
+            }
+
+            return setWfSigInfo.ToList<SetWFSignatureResult>().SingleOrDefault();
+        }
+        #endregion
+
+        #region - 結束節點 -
+        public class ToEndNodePara
+        {
+            public string WFNo { get; set; }
+            public string NodeNO { get; set; }
+            public string UserID { get; set; }
+            public string UpdUserID { get; set; }
+        }
+
+        public class ToEndNode
+        {
+            public string Result { get; set; }
+        }
+
+        public ToEndNode EditToEndNode(ToEndNodePara para)
+        {
+            DataTable editToEndNodeInfo = new DataTable();
+
+            var commandSignature = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "DECLARE @RESULT CHAR(1) = 'N'; ",
+                "DECLARE @ERROR_LINE INT;",
+                "DECLARE @ERROR_MESSAGE NVARCHAR(4000);",
+
+                "DECLARE @SYS_ID VARCHAR(6) = NULL; ",
+                "DECLARE @WF_FLOW_ID VARCHAR(50) = NULL; ",
+                "DECLARE @WF_FLOW_VER VARCHAR(50) = NULL; ",
+                "DECLARE @WF_NODE_ID VARCHAR(50) = NULL; ",
+                "DECLARE @REMARK_NO CHAR(3); ",
+
+                "DECLARE @NOW_DATETIME CHAR(17) = dbo.FN_GET_SYSDATE(NULL) + dbo.FN_GET_SYSTIME(NULL); ",
+
+                "SELECT @REMARK_NO = MAX(REMARK_NO) ",
+                "  FROM WF_REMARK ",
+                " WHERE WF_NO = @WF_NO;",
+
+                "SELECT @SYS_ID = D.SYS_ID ",
+                "     , @WF_FLOW_ID = D.WF_FLOW_ID ",
+                "     , @WF_FLOW_VER = D.WF_FLOW_VER ",
+                "     , @WF_NODE_ID = D.WF_NODE_ID ",
+                "  FROM dbo.FNTB_GET_WF_NODE(@WF_NO) D ",
+
+                "BEGIN TRANSACTION ",
+                "    BEGIN TRY ",
+                "        UPDATE WF_NODE ",
+                "           SET END_USER_ID = @USER_ID ",
+                "             , DT_END = @NOW_DATETIME ",
+                "             , RESULT_ID = 'F'",
+                "             , UPD_USER_ID = @UPD_USER_ID ",
+                "             , UPD_DT = GETDATE() ",
+                "         WHERE WF_NO = @WF_NO ",
+                "           AND NODE_NO = @NODE_NO; ",
+
+                "        UPDATE WF_FLOW ",
+                "           SET END_USER_ID = @USER_ID",
+                "             , DT_END = @NOW_DATETIME",
+                "             , RESULT_ID = 'F'",
+                "             , NODE_NO = NULL ",
+                "             , UPD_USER_ID = @UPD_USER_ID",
+                "             , UPD_DT = GETDATE() ",
+                "         WHERE WF_NO = @WF_NO; ",
+
+                #region - 新增備註 -
+                "        SET @REMARK_NO = RIGHT('00' + CAST(ISNULL(CAST(@REMARK_NO AS INT), 0) + 1 AS VARCHAR), 3) ",
+                "        INSERT INTO dbo.WF_REMARK (",
+                "               WF_NO, NODE_NO, REMARK_NO, SYS_ID, WF_FLOW_ID, WF_FLOW_VER, WF_NODE_ID, NODE_RESULT_ID, BACK_WF_NODE_ID",
+                "             , SIG_STEP, WF_SIG_SEQ, SIG_DATE, SIG_RESULT_ID",
+                "             , DOC_NO, WF_DOC_SEQ, DOC_DATE, DOC_IS_DELETE",
+                "             , REMARK_USER_ID, REMARK_DATE, REMARK",
+                "             , UPD_USER_ID, UPD_DT",
+                "        ) VALUES (",
+                "               @WF_NO, @NODE_NO, @REMARK_NO, @SYS_ID, @WF_FLOW_ID, @WF_FLOW_VER, @WF_NODE_ID, 'F', NULL",
+                "             , NULL, NULL, NULL, NULL",
+                "             , NULL, NULL, NULL, NULL",
+                "             , @USER_ID, @NOW_DATETIME, NULL",
+                "             , @UPD_USER_ID, GETDATE()",
+                "        )",
+                #endregion
+
+                "        SET @RESULT = 'Y'; ",
+                "        COMMIT; ",
+                "    END TRY ",
+                "    BEGIN CATCH ",
+                "        SET @RESULT = 'N';",
+                "        SET @ERROR_LINE = ERROR_LINE();",
+                "        SET @ERROR_MESSAGE = ERROR_MESSAGE();",
+                "        ROLLBACK TRANSACTION; ",
+                "    END CATCH; ",
+
+                "IF @RESULT='Y' ",
+                "BEGIN ",
+                "    SELECT @WF_NO AS WF_NO ",
+                "         , NULL AS NODE_NO ",
+                "         , SYS_ID ",
+                "         , WF_FLOW_ID AS FLOW_ID ",
+                "         , WF_FLOW_VER AS FLOW_VER ",
+                "         , NULL AS NODE_ID ",
+                "         , 'E' AS NODE_TYPE ",
+                "         , NULL AS FUN_SYS_ID ",
+                "         , NULL AS SUB_SYS_ID ",
+                "         , NULL AS FUN_CONTROLLER_ID ",
+                "         , NULL AS FUN_ACTION_NAME ",
+                "         , @NOW_DATETIME AS DTEnd ",
+                "         , @RESULT AS Result ",
+                "      FROM WF_NODE ",
+                "     WHERE WF_NO = @WF_NO ",
+                "       AND NODE_NO = @NODE_NO;  ",
+                "END; ",
+                "ELSE ",
+                "BEGIN ",
+                "    SELECT @RESULT AS Result, @ERROR_LINE AS ErrorLine, @ERROR_MESSAGE AS ErrorMessage; ",
+                "END; "
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandSignature.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@WF_NO", para.WFNo);
+                    cmd.Parameters.AddWithValue("@NODE_NO", para.NodeNO);
+                    cmd.Parameters.AddWithValue("@USER_ID", para.UserID);
+                    cmd.Parameters.AddWithValue("@UPD_USER_ID", para.UpdUserID);
+                    SqlDataAdapter adapter = new SqlDataAdapter(cmd);
+                    adapter.Fill(editToEndNodeInfo);
+                }
+            }
+
+            return editToEndNodeInfo.ToList<ToEndNode>().SingleOrDefault();
+        }
+        #endregion
+
+        #region - 成為當節點處理人 -
+        public class EditWFNodeProcessUserIDPara
+        {
+            public string WFNo { get; set; }
+            public string UserID { get; set; }
+            public string NewUserID { get; set; }
+            public string UpdUserID { get; set; }
+        }
+
+        public class EditWFNodeProcessUserIDResult
+        {
+            public string Result { get; set; }
+        }
+
+        public EditWFNodeProcessUserIDResult EditWFNodeProcessUserID(EditWFNodeProcessUserIDPara para)
+        {
+            DataTable wFNodeProcessUserIDInfo = new DataTable();
+
+            var commandSignature = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "EXECUTE dbo.SP_WF_EDIT_NODE @WF_NO, @USER_ID, @NEW_USER_ID, @UPD_USER_ID;"
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandSignature.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@WF_NO", para.WFNo);
+                    cmd.Parameters.AddWithValue("@USER_ID", para.UserID);
+                    cmd.Parameters.AddWithValue("@NEW_USER_ID", para.NewUserID);
+                    cmd.Parameters.AddWithValue("@UPD_USER_ID", para.UpdUserID);
+                    SqlDataAdapter adapter = new SqlDataAdapter(cmd);
+                    adapter.Fill(wFNodeProcessUserIDInfo);
+                }
+            }
+
+            return wFNodeProcessUserIDInfo.ToList<EditWFNodeProcessUserIDResult>().SingleOrDefault();
+        }
+        #endregion
+
+        #region - 取得目前結點 -
+        /// <summary>
+        /// 取得目前結點
+        /// </summary>
+        public class RunTimeWfFlowPara
+        {
+            public string WFNo { get; set; }
+        }
+
+        public string GetRunTimeWFFlow(RunTimeWfFlowPara para)
+        {
+            DataTable wfSigInfo = new DataTable();
+            var commandSignature = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "SELECT NODE_NO",
+                "  FROM WF_FLOW",
+                " WHERE WF_NO = @WF_NO"
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandSignature.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@WF_NO", para.WFNo);
+                    SqlDataAdapter adapter = new SqlDataAdapter(cmd);
+                    adapter.Fill(wfSigInfo);
+                }
+            }
+
+            if (wfSigInfo.Rows.Count == 1)
+            {
+                return wfSigInfo.Rows[0].Field<string>("NODE_NO");
+            }
+
+            return string.Empty;
+        }
+        #endregion
+
+        #region - 增加註記 -
+        public class AddWFRemarkPara
+        {
+            public string WFNo { get; set; }
+            public string UserID { get; set; }
+            public string UpdUserID { get; set; }
+            public string Remark { get; set; }
+        }
+
+        public void AddWFRemark(AddWFRemarkPara para)
+        {
+            int exeNum;
+            var commandAddRemark = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "DECLARE @REMARK_NO CHAR(3);",
+                "DECLARE @NODE_NO CHAR(3) = NULL;",
+                "DECLARE @SYS_ID VARCHAR(6) = NULL;",
+                "DECLARE @WF_FLOW_ID VARCHAR(50) = NULL;",
+                "DECLARE @WF_FLOW_VER VARCHAR(50) = NULL;",
+                "DECLARE @WF_NODE_ID VARCHAR(50) = NULL;",
+                "DECLARE @NEW_USER_ID VARCHAR(20) = NULL;",
+
+                "DECLARE @NOW_DATETIME CHAR(17) = dbo.FN_GET_SYSDATE(NULL) + dbo.FN_GET_SYSTIME(NULL);",
+                " SELECT @REMARK_NO = MAX(REMARK_NO)",
+                "   FROM WF_REMARK",
+                "  WHERE WF_NO = @WF_NO;",
+
+                " SELECT @NODE_NO = D.NODE_NO",
+                "      , @SYS_ID = D.SYS_ID",
+                "      , @WF_FLOW_ID = D.WF_FLOW_ID",
+                "      , @WF_FLOW_VER = D.WF_FLOW_VER",
+                "      , @WF_NODE_ID = D.WF_NODE_ID",
+                "      , @NEW_USER_ID = D.NEW_USER_ID",
+                "  FROM dbo.FNTB_GET_WF_NODE(@WF_NO) D",
+
+                "SET @REMARK_NO = RIGHT('00' + CAST(ISNULL(CAST(@REMARK_NO AS INT), 0) + 1 AS VARCHAR), 3)",
+
+                " INSERT INTO WF_REMARK",
+                "      ( WF_NO",
+                "      , NODE_NO",
+                "      , REMARK_NO",
+                "      , SYS_ID",
+                "      , WF_FLOW_ID",
+                "      , WF_FLOW_VER",
+                "      , WF_NODE_ID",
+                "      , NODE_RESULT_ID",
+                "      , BACK_WF_NODE_ID",
+                "      , SIG_STEP",
+                "      , WF_SIG_SEQ",
+                "      , SIG_DATE",
+                "      , SIG_RESULT_ID",
+                "      , DOC_NO",
+                "      , WF_DOC_SEQ",
+                "      , DOC_DATE",
+                "      , DOC_IS_DELETE",
+                "      , REMARK_USER_ID",
+                "      , REMARK_DATE",
+                "      , REMARK",
+                "      , UPD_USER_ID",
+                "      , UPD_DT",
+                "      ) ",
+                " VALUES",
+                "      ( @WF_NO",
+                "      , @NODE_NO",
+                "      , @REMARK_NO",
+                "      , @SYS_ID",
+                "      , @WF_FLOW_ID",
+                "      , @WF_FLOW_VER",
+                "      , @WF_NODE_ID",
+                "      , 'P'",
+                "      , NULL",
+                "      , NULL",
+                "      , NULL",
+                "      , NULL",
+                "      , NULL",
+                "      , NULL",
+                "      , NULL",
+                "      , NULL",
+                "      , NULL",
+                "      , @USER_ID",
+                "      , @NOW_DATETIME",
+                "      , @REMARK",
+                "      , @UPD_USER_ID",
+                "      , GETDATE()",
+                "      )"
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandAddRemark.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@WF_NO", para.WFNo);
+                    cmd.Parameters.AddWithValue("@USER_ID", para.UserID);
+                    cmd.Parameters.AddWithValue("@UPD_USER_ID", para.UpdUserID);
+                    cmd.Parameters.AddWithValue("@REMARK", para.Remark);
+                    exeNum = cmd.ExecuteNonQuery();
+                }
+            }
+        }
+        #endregion
+
+        #region - 取得員工編號(針對原本在簽核名單內但被刪除者) -
+        public class SigRemoveUserIDPara
+        {
+            public string UserNM { get; set; }
+        }
+
+        public class SigRemoveUserID
+        {
+            public string STFN { get; set; }
+        }
+
+        public List<SigRemoveUserID> GetSigRemoveUserID(SigRemoveUserIDPara para)
+        {
+            DataTable tableRow = new DataTable();
+
+            var commandText = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "SELECT stfn_stfn AS STFN",
+                "  FROM opagm20 OPGM",
+                " WHERE (CHARINDEX(stfn_pname,@USER_NM_STR) > 0 OR CHARINDEX(stfn_cname,@USER_NM_STR) > 0)",
+                "   AND (SELECT prof_prof FROM ispfm00",
+                " WHERE prof_dname = SUBSTRING(@USER_NM_STR, 1, CASE WHEN (CHARINDEX(OPGM.stfn_pname, @USER_NM_STR) - 1) < 0 THEN 0 ELSE (CHARINDEX(OPGM.stfn_pname, @USER_NM_STR) - 1) END)) = stfn_prof"
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandText.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@USER_NM_STR", para.UserNM);
+                    SqlDataAdapter adapter = new SqlDataAdapter(cmd);
+                    adapter.Fill(tableRow);
+                }
+            }
+            return tableRow.ToList<SigRemoveUserID>().ToList();
+        }
+        #endregion
+
+        #region - 簽核 -
+        /// <summary>
+        /// 簽核
+        /// </summary>
+        public class WFSignaturePara
+        {
+            public string WFNo { get; set; }
+            public string NodeNO { get; set; }
+            public string UserID { get; set; }
+            public string SigResultID { get; set; }
+        }
+
+        public class WFSignature
+        {
+            public string Result { get; set; }
+        }
+
+        public WFSignature EditWFSignature(WFSignaturePara para)
+        {
+            DataTable wfSigInfo = new DataTable();
+
+            var commandSignature = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "EXECUTE dbo.SP_WF_SIGNATURE @WF_NO, @NODE_NO, @USER_ID, @SIG_RESULT_ID, @SIG_COMMENT, @UPD_USER_ID;"
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandSignature.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@WF_NO", para.WFNo);
+                    cmd.Parameters.AddWithValue("@NODE_NO", para.NodeNO);
+                    cmd.Parameters.AddWithValue("@USER_ID", para.UserID);
+                    cmd.Parameters.AddWithValue("@SIG_RESULT_ID", para.SigResultID);
+                    cmd.Parameters.AddWithValue("@SIG_COMMENT", "NULL");
+                    cmd.Parameters.AddWithValue("@UPD_USER_ID", "NULL");
+                    SqlDataAdapter adapter = new SqlDataAdapter(cmd);
+                    adapter.Fill(wfSigInfo);
+                }
+            }
+
+            return wfSigInfo.ToList<WFSignature>().SingleOrDefault();
+        }
+        #endregion
+
+        #region - 移至下一結點 -
+        /// <summary>
+        /// 移至下一結點
+        /// </summary>
+        public class NextToNodePara
+        {
+            public string NewUserID { get; set; }
+            public string UserID { get; set; }
+            public string UpdUserID { get; set; }
+            public string WFNo { get; set; }
+            public List<NodeNewUserPara> NodeUserParaList { get; set; }
+        }
+
+        public class NodeNewUserPara
+        {
+            public string NewUserID;
+        }
+
+        public bool NextToProcessNode(NextToNodePara para)
+        {
+            DataTable tableRow = new DataTable();
+            StringBuilder command = new StringBuilder();
+
+            foreach (NodeNewUserPara NodeUserPara in para.NodeUserParaList)
+            {
+                command.Append(string.Join(Environment.NewLine, new object[]
+                {
+                    " INSERT INTO @USER_LIST",
+                    "      ( USER_ID",
+                    "      ) ",
+                    " VALUES",
+                    "      ( '" + NodeUserPara.NewUserID + "'",
+                    "      );"
+                }));
+            }
+
+            var commandText = new StringBuilder(string.Join(Environment.NewLine, new object[]
+            {
+                "DECLARE @USER_LIST USER_TYPE;",
+                command.ToString(),
+                "EXECUTE dbo.SP_WF_NEXT_TO_PROCESS_NODE @WF_NO, @USER_ID, @NEW_USER_ID, @UPD_USER_ID, @USER_LIST;"
+            }));
+
+            using (SqlConnection connection = new SqlConnection(_conn))
+            {
+                using (SqlCommand cmd = new SqlCommand(commandText.ToString(), connection))
+                {
+                    connection.Open();
+                    cmd.Parameters.AddWithValue("@WF_NO", para.WFNo);
+                    cmd.Parameters.AddWithValue("@USER_ID", para.UserID);
+                    cmd.Parameters.AddWithValue("@NEW_USER_ID", para.NewUserID);
+                    cmd.Parameters.AddWithValue("@UPD_USER_ID", para.UpdUserID);
+                    SqlDataAdapter adapter = new SqlDataAdapter(cmd);
+                    adapter.Fill(tableRow);
+                }
+            }
+
+            return true;
         }
         #endregion
     }

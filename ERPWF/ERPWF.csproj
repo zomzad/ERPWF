@@ -55,18 +55,19 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BatchModel.cs" />
     <Compile Include="DataTable\DataTableExtensions.cs" />
     <Compile Include="DataTable\LogInfo.cs" />
     <Compile Include="DataTable\opagm20.cs" />
     <Compile Include="DataTable\recm93.cs" />
     <Compile Include="DataTable\SignForm.cs" />
     <Compile Include="Entity.cs" />
-    <Compile Include="EntityTEST.cs" />
+    <Compile Include="EntityBatch.cs" />
+    <Compile Include="EntityWorkflow.cs" />
     <Compile Include="Model.cs" />
-    <Compile Include="ModelTEST.cs" />
+    <Compile Include="WorkflowModel.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="WFModel.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config">

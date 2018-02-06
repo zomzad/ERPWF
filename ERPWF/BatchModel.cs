@@ -271,7 +271,7 @@ namespace ERPWF
             catch (Exception ex)
             {
                 WriteErrorFormLog($"{ex.Message}{Environment.NewLine}");
-                
+
             }
             return false;
         }
@@ -511,23 +511,23 @@ namespace ERPWF
             var logRecm93List = LogRecm93List.Where(r => r.Lrec93Form.ToString() == signFromNo);
 
             SpecificFormNoERPLogInfoList = (from data in logRecm93List
-                                     let hasUser = SpecificFormNoRecm94List.Any(sign => data.Lrec93Mstfn.Contains(sign.StfnCname)) //處理紀錄人員是否存在於簽核名單中
-                                     select new LogInfo
-                                     {
-                                         Applicant = data.Rec93Stfn,
-                                         SignedUser = hasUser
-                                             ? SpecificFormNoRecm94List.First(sign => data.Lrec93Mstfn.Contains(sign.StfnCname)).Rec94Stfn
-                                             : GetUserID(data.Lrec93Mstfn),
+                                            let hasUser = SpecificFormNoRecm94List.Any(sign => data.Lrec93Mstfn.Contains(sign.StfnCname)) //處理紀錄人員是否存在於簽核名單中
+                                            select new LogInfo
+                                            {
+                                                Applicant = data.Rec93Stfn,
+                                                SignedUser = hasUser
+                                                    ? SpecificFormNoRecm94List.First(sign => data.Lrec93Mstfn.Contains(sign.StfnCname)).Rec94Stfn
+                                                    : GetUserID(data.Lrec93Mstfn),
 
-                                         lrec93_form = data.Lrec93Form,
-                                         lrec93_date = data.Lrec93Date,
-                                         lrec93_fsts = data.Lrec93Fsts,
-                                         lrec93_hidden = data.Lrec93Hidden,
-                                         lrec93_bgcolor = data.Lrec93Bgcolor,
-                                         lrec93_mstfn = data.Lrec93Mstfn,
-                                         lrec93_mdate = data.Lrec93Mdate,
-                                         lrec93_desc = data.Lrec93Desc
-                                     }).ToList();
+                                                lrec93_form = data.Lrec93Form,
+                                                lrec93_date = data.Lrec93Date,
+                                                lrec93_fsts = data.Lrec93Fsts,
+                                                lrec93_hidden = data.Lrec93Hidden,
+                                                lrec93_bgcolor = data.Lrec93Bgcolor,
+                                                lrec93_mstfn = data.Lrec93Mstfn,
+                                                lrec93_mdate = data.Lrec93Mdate,
+                                                lrec93_desc = data.Lrec93Desc
+                                            }).ToList();
         }
         #endregion
 
@@ -535,6 +535,9 @@ namespace ERPWF
         /// <summary>
         /// 檢查文件並上傳
         /// </summary>
+        /// <param name="userID"></param>
+        /// <param name="formNO"></param>
+        /// <returns></returns>
         public bool CheckFileAndUpload(string userID, string formNO)
         {
             try
@@ -725,6 +728,12 @@ namespace ERPWF
         #endregion
 
         #region - 新增簽核參數資料 -
+        /// <summary>
+        /// 新增簽核參數資料
+        /// </summary>
+        /// <param name="sigResultID"></param>
+        /// <param name="sigUserID"></param>
+        /// <returns></returns>
         public bool AddWFSignatureExecPara(string sigResultID, string sigUserID)
         {
             try
@@ -750,6 +759,9 @@ namespace ERPWF
         #endregion
 
         #region - 簽核 -
+        /// <summary>
+        /// 簽核
+        /// </summary>
         protected void EditWFSignature()
         {
             _connUSerp.EditWFSignature(WFSignatureExecaraList);
@@ -924,6 +936,11 @@ namespace ERPWF
         #endregion
 
         #region - 新增移至下一節點參數 -
+        /// <summary>
+        /// 新增移至下一節點參數
+        /// </summary>
+        /// <param name="erpNodeNum"></param>
+        /// <param name="sigUerID"></param>
         protected void AddNextToNodePara(string erpNodeNum, string sigUerID)
         {
             NextToNodeParaList.Add(new EntityBatch.NextToNodePara
@@ -946,7 +963,7 @@ namespace ERPWF
         /// </summary>
         private void NextToNode()
         {
-            
+
         }
         #endregion
 
@@ -991,6 +1008,11 @@ namespace ERPWF
         #endregion
 
         #region - 取得員工編號 -
+        /// <summary>
+        /// 取得員工編號
+        /// </summary>
+        /// <param name="userNM"></param>
+        /// <returns></returns>
         private string GetUserID(string userNM)
         {
             EntityBatch.UserIDPara para = new EntityBatch.UserIDPara

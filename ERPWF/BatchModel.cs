@@ -639,6 +639,9 @@ namespace ERPWF
         #endregion
 
         #region - 新增註記 -
+        /// <summary>
+        /// 新增註記
+        /// </summary>
         private void AddRemark()
         {
             _connUSerp.AddRemark(AddRemarkParaList);
@@ -646,6 +649,10 @@ namespace ERPWF
         #endregion
 
         #region - 新增WF簽核名單參數資料 -
+        /// <summary>
+        /// 新增WF簽核名單參數資料
+        /// </summary>
+        /// <returns></returns>
         private bool AddWFSignaturePara()
         {
             _firstTimeSig = true;

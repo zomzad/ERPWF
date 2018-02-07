@@ -349,7 +349,6 @@ namespace ERPWF
         {
             string tempKey = string.Empty;
             var remarkNo = 2;
-
             var reamrkInfoList = new List<RemarkData>();
 
             var addRemarkParaDic = AddRemarkParaList.GroupBy(o => o.WFNo)
@@ -377,19 +376,19 @@ namespace ERPWF
                                               WFFlowID = n.FlowID,
                                               WFFlowVer = n.FlowVer,
                                               WFNodeID = n.WFNodeID,
-                                              NodeResultID = "NULL",
-                                              BackWFNodeID = "NULL",
+                                              NodeResultID = null,
+                                              BackWFNodeID = null,
                                               SigStep = null,
-                                              WFSigSeq = "NULL",
-                                              SigDate = "NULL",
-                                              SigResultID = "NULL",
-                                              DocNO = "NULL",
-                                              WFDocSEQ = "NULL",
-                                              DocDate = "NULL",
-                                              DocIsDelete = "NULL",
+                                              WFSigSeq = null,
+                                              SigDate = null,
+                                              SigResultID = null,
+                                              DocNO = null,
+                                              WFDocSEQ = null,
+                                              DocDate = null,
+                                              DocIsDelete = null,
                                               RemarkUserID = n.RemarkUserID,
                                               RemarkDate = DateTime.Now.ToString("yyyyMMddhhmmssfff"),
-                                              Remark = string.IsNullOrWhiteSpace(n.Remark) ? "NULL" : n.Remark,
+                                              Remark = string.IsNullOrWhiteSpace(n.Remark) ? null : n.Remark,
                                               UpdUserID = n.UpdUserID,
                                               UpdDT = DateTime.Now
                                           };
@@ -402,44 +401,29 @@ namespace ERPWF
 
             #region - List轉DataTable -
             var props = typeof(RemarkData).GetProperties();
-            var remarkDT = new DataTable();
+            var remarkDt = new DataTable();
 
-            remarkDT.Columns.AddRange(props.Select(p =>
-            {
-                Type colType = p.PropertyType;
-                if (colType.IsGenericType &&
-                    colType.GetGenericTypeDefinition() == typeof(Nullable<>))
-                {
-                    colType = colType.GetGenericArguments()[0];
-                }
+            remarkDt.Columns.AddRange(props.Select(p =>
+                new DataColumn(p.Name,
+                    (p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                        ? p.PropertyType.GetGenericArguments()[0]
+                        : p.PropertyType)).ToArray());
 
-                DataColumn column = new DataColumn(p.Name, colType) { AllowDBNull = true };
-                return column;
-            }).ToArray());
-
-            reamrkInfoList.ForEach(
-                remark => remarkDT.LoadDataRow
-                    (
-                        props.Select(pi => pi.GetValue(remark, null)).ToArray(),
-                        true
-                    ));
+            reamrkInfoList.ForEach(remark => remarkDt.LoadDataRow(props.Select(pi => pi.GetValue(remark, null)).ToArray(),true));
             #endregion
 
-            SqlConnection conn = new SqlConnection(ConfigurationManager.ConnectionStrings["USERPConnection"].ConnectionString);
-            conn.Open();
-            CreateTvpType(conn);
-
-            SqlCommand cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO WF_REMARK SELECT * FROM @TVPRematkData";
-
-            SqlParameter tvp = cmd.Parameters.Add("@TVPRematkData", SqlDbType.Structured);
-            tvp.Value = remarkDT;
-            tvp.TypeName = "REMARK_TYPE";
-            cmd.ExecuteNonQuery();
-            conn.Dispose();
-            cmd.Dispose();
-
-            //_connUSerp.AddRemark(addRemarkParaDic);
+            using (SqlConnection connection = new SqlConnection(ConfigurationManager.ConnectionStrings["USERPConnection"].ConnectionString))
+            {
+                using (SqlCommand cmd = new SqlCommand("INSERT INTO WF_REMARK SELECT * FROM @TVPRematkData", connection))
+                {
+                    connection.Open();
+                    CreateTvpType(connection);
+                    SqlParameter tvp = cmd.Parameters.Add("@TVPRematkData", SqlDbType.Structured);
+                    tvp.Value = remarkDt;
+                    tvp.TypeName = "REMARK_TYPE";
+                    cmd.ExecuteNonQuery();
+                }
+            }
         }
         #endregion
 
@@ -450,6 +434,11 @@ namespace ERPWF
                 Connection = conn,
                 CommandText =
                     @"
+                    BEGIN 
+                    TRY DROP TYPE REMARK_TYPE END TRY
+                    BEGIN CATCH
+                    END CATCH
+
                     CREATE TYPE REMARK_TYPE AS TABLE
                     (
 	                    WF_NO CHAR(14),

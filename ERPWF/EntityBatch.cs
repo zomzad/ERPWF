@@ -50,7 +50,7 @@ namespace ERPWF
                 "  JOIN recm96a CM96A",
                 "    ON CM96A.r96a_form = CM93.rec93_form",
                 " WHERE CM93.rec93_formno = '2'",
-                //"   AND CM93.rec93_form = '17110001'",//指定單號
+                "   AND CM93.rec93_form = '17100003'",//指定單號
                 " ORDER BY SignFormNO DESC;",
 
                 //包含姓名的簽核清單 並建立索引
@@ -68,7 +68,7 @@ namespace ERPWF
                 "  FROM recm94",
                 "  JOIN #IdxOpagm20",
                 "    ON stfn_stfn = rec94_stfn",
-                //" WHERE recm94.rec94_form = '17110001'",//指定單號
+                " WHERE recm94.rec94_form = '17100003'",//指定單號
                 " GROUP BY stfn_cname,rec94_stfn,rec94_form,rec94_fsts,rec94_no",
                 " ORDER BY rec94_fsts,rec94_no;",
                 "SELECT * FROM #REC94;",
@@ -88,10 +88,11 @@ namespace ERPWF
                 "     , lrec93_bgcolor AS Lrec93Bgcolor",
                 "     , lrec93_mstfn AS Lrec93Mstfn",
                 "     , lrec93_mdate AS Lrec93Mdate",
+                "     , lrec93_desc AS Lrec93Desc",
                 "  INTO #LOGRECM93",
                 "  FROM logrecm93",
                 "  WHERE logrecm93.lrec93_form IN (SELECT rec93_form FROM #REC93)",
-                //"    AND logrecm93.lrec93_form = '17110001'",
+                "    AND logrecm93.lrec93_form = '17100003'",
                 "SELECT * FROM #LOGRECM93"
             }));
 

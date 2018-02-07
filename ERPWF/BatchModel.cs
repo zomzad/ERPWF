@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Configuration;
 using System.Data;
+using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -61,6 +62,32 @@ namespace ERPWF
 
             [Description("APIService.ERP.WorkFlowService")]
             UPD_USER_ID
+        }
+
+        public class RemarkData
+        {
+            public string WFNo { get; set; }
+            public string NodeNO { get; set; }
+            public string RemarkNO { get; set; }
+            public string SysID { get; set; }
+            public string WFFlowID { get; set; }
+            public string WFFlowVer { get; set; }
+            public string WFNodeID { get; set; }
+            public string NodeResultID { get; set; }
+            public string BackWFNodeID { get; set; }
+            public int? SigStep { get; set; }
+            public string WFSigSeq { get; set; }
+            public string SigDate { get; set; }
+            public string SigResultID { get; set; }
+            public string DocNO { get; set; }
+            public string WFDocSEQ { get; set; }
+            public string DocDate { get; set; }
+            public string DocIsDelete { get; set; }
+            public string RemarkUserID { get; set; }
+            public string RemarkDate { get; set; }
+            public string Remark { get; set; }
+            public string UpdUserID { get; set; }
+            public DateTime UpdDT { get; set; }
         }
 
         protected class Recm94
@@ -313,6 +340,144 @@ namespace ERPWF
             //EditToEndNode();
         }
         #endregion
+
+        #region - 新增註記 -
+        /// <summary>
+        /// 新增註記
+        /// </summary>
+        private void AddRemark()
+        {
+            string tempKey = string.Empty;
+            var remarkNo = 2;
+
+            var reamrkInfoList = new List<RemarkData>();
+
+            var addRemarkParaDic = AddRemarkParaList.GroupBy(o => o.WFNo)
+                                      .ToDictionary(o => o.Key, o => o.ToList().Select(n =>
+                                      {
+                                          if (string.IsNullOrWhiteSpace(tempKey))
+                                          {
+                                              tempKey = o.Key;
+                                          }
+                                          else
+                                          {
+                                              if (tempKey != o.Key)
+                                              {
+                                                  tempKey = o.Key;
+                                                  remarkNo = 2;
+                                              }
+                                          }
+
+                                          return new RemarkData
+                                          {
+                                              WFNo = n.WFNo,
+                                              NodeNO = n.NodeNO,
+                                              RemarkNO = Convert.ToString(remarkNo++).PadLeft(3, '0'),
+                                              SysID = n.SysID,
+                                              WFFlowID = n.FlowID,
+                                              WFFlowVer = n.FlowVer,
+                                              WFNodeID = n.WFNodeID,
+                                              NodeResultID = "NULL",
+                                              BackWFNodeID = "NULL",
+                                              SigStep = null,
+                                              WFSigSeq = "NULL",
+                                              SigDate = "NULL",
+                                              SigResultID = "NULL",
+                                              DocNO = "NULL",
+                                              WFDocSEQ = "NULL",
+                                              DocDate = "NULL",
+                                              DocIsDelete = "NULL",
+                                              RemarkUserID = n.RemarkUserID,
+                                              RemarkDate = DateTime.Now.ToString("yyyyMMddhhmmssfff"),
+                                              Remark = string.IsNullOrWhiteSpace(n.Remark) ? "NULL" : n.Remark,
+                                              UpdUserID = n.UpdUserID,
+                                              UpdDT = DateTime.Now
+                                          };
+                                      }).ToList());
+
+            foreach (var remark in addRemarkParaDic)
+            {
+                reamrkInfoList.AddRange(remark.Value.ToList());
+            }
+
+            #region - List轉DataTable -
+            var props = typeof(RemarkData).GetProperties();
+            var remarkDT = new DataTable();
+
+            remarkDT.Columns.AddRange(props.Select(p =>
+            {
+                Type colType = p.PropertyType;
+                if (colType.IsGenericType &&
+                    colType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                {
+                    colType = colType.GetGenericArguments()[0];
+                }
+
+                DataColumn column = new DataColumn(p.Name, colType) { AllowDBNull = true };
+                return column;
+            }).ToArray());
+
+            reamrkInfoList.ForEach(
+                remark => remarkDT.LoadDataRow
+                    (
+                        props.Select(pi => pi.GetValue(remark, null)).ToArray(),
+                        true
+                    ));
+            #endregion
+
+            SqlConnection conn = new SqlConnection(ConfigurationManager.ConnectionStrings["USERPConnection"].ConnectionString);
+            conn.Open();
+            CreateTvpType(conn);
+
+            SqlCommand cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT INTO WF_REMARK SELECT * FROM @TVPRematkData";
+
+            SqlParameter tvp = cmd.Parameters.Add("@TVPRematkData", SqlDbType.Structured);
+            tvp.Value = remarkDT;
+            tvp.TypeName = "REMARK_TYPE";
+            cmd.ExecuteNonQuery();
+            conn.Dispose();
+            cmd.Dispose();
+
+            //_connUSerp.AddRemark(addRemarkParaDic);
+        }
+        #endregion
+
+        public void CreateTvpType(SqlConnection conn)
+        {
+            SqlCommand cmd = new SqlCommand
+            {
+                Connection = conn,
+                CommandText =
+                    @"
+                    CREATE TYPE REMARK_TYPE AS TABLE
+                    (
+	                    WF_NO CHAR(14),
+	                    NODE_NO CHAR(3),
+	                    REMARK_NO CHAR(3),
+	                    SYS_ID VARCHAR(12),
+	                    WF_FLOW_ID VARCHAR(50),
+	                    WF_FLOW_VER CHAR(3),
+	                    WF_NODE_ID VARCHAR(50),
+	                    NODE_RESULT_ID VARCHAR(20),
+	                    BACK_WF_NODE_ID VARCHAR(50),
+	                    SIG_STEP INT,
+	                    WF_SIG_SEQ CHAR(3),
+	                    SIG_DATE CHAR(17),
+	                    SIG_RESULT_ID VARCHAR(20),
+	                    DOC_NO CHAR(3),
+	                    WF_DOC_SEQ CHAR(3),
+	                    DOC_DATE CHAR(17),
+	                    DOC_IS_DELETE CHAR(1),
+	                    REMARK_USER_ID VARCHAR(20),
+	                    REMARK_DATE CHAR(17),
+	                    REMARK NVARCHAR(4000),
+	                    UPD_USER_ID VARCHAR(50),
+	                    UPD_DT DATETIME
+                    );"
+            };
+            cmd.ExecuteNonQuery();
+        }
 
         #region - ERP結案聯絡單資料轉移 -
         protected void ERPEndContactDataTransfer(SignForm signForm)
@@ -635,16 +800,6 @@ namespace ERPWF
                 UpdUserID = userID,
                 Remark = string.IsNullOrWhiteSpace(ErpWFLogNodeInfo.Desc) ? DBNull.Value.ToString() : ErpWFLogNodeInfo.Desc
             });
-        }
-        #endregion
-
-        #region - 新增註記 -
-        /// <summary>
-        /// 新增註記
-        /// </summary>
-        private void AddRemark()
-        {
-            _connUSerp.AddRemark(AddRemarkParaList);
         }
         #endregion
 

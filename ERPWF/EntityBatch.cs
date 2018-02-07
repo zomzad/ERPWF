@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 
@@ -353,91 +354,97 @@ namespace ERPWF
             public string Remark { get; set; }
         }
 
-        public void AddRemark(List<AddRemarkPara> addRemarkParaList)
+        public void AddRemark(Dictionary<string, List<AddRemarkPara>> addRemarkParaDic)
         {
+            SqlConnection conn = new SqlConnection(_conn);
+            conn.Open();
+
             var commandAddRemark = new StringBuilder(string.Join(Environment.NewLine, new object[]
             {
                 "DECLARE @REMARK_NO CHAR(3);",
                 "DECLARE @NEW_USER_ID VARCHAR(20) = NULL;",
-
                 "DECLARE @NOW_DATETIME CHAR(17) = dbo.FN_GET_SYSDATE(NULL) + dbo.FN_GET_SYSTIME(NULL);",
-                " SELECT @REMARK_NO = MAX(REMARK_NO)",
-                "   FROM WF_REMARK",
-                "  WHERE WF_NO = @WF_NO;",
-                "SET @REMARK_NO = RIGHT('00' + CAST(ISNULL(CAST(@REMARK_NO AS INT), 0) + 1 AS VARCHAR), 3)",
-
-                " INSERT INTO WF_REMARK",
-                "      ( WF_NO",
-                "      , NODE_NO",
-                "      , REMARK_NO",
-                "      , SYS_ID",
-                "      , WF_FLOW_ID",
-                "      , WF_FLOW_VER",
-                "      , WF_NODE_ID",
-                "      , NODE_RESULT_ID",
-                "      , BACK_WF_NODE_ID",
-                "      , SIG_STEP",
-                "      , WF_SIG_SEQ",
-                "      , SIG_DATE",
-                "      , SIG_RESULT_ID",
-                "      , DOC_NO",
-                "      , WF_DOC_SEQ",
-                "      , DOC_DATE",
-                "      , DOC_IS_DELETE",
-                "      , REMARK_USER_ID",
-                "      , REMARK_DATE",
-                "      , REMARK",
-                "      , UPD_USER_ID",
-                "      , UPD_DT",
-                "      ) ",
-                " VALUES",
-                "      ( @WF_NO",
-                "      , @NODE_NO",
-                "      , @REMARK_NO",
-                "      , @SYS_ID",
-                "      , @WF_FLOW_ID",
-                "      , @WF_FLOW_VER",
-                "      , @WF_NODE_ID",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , NULL",
-                "      , @REMARK_USER_ID",
-                "      , @NOW_DATETIME",
-                "      , @REMARK",
-                "      , @UPD_USER_ID",
-                "      , GETDATE()",
-                "      )"
             }));
 
-            SqlConnection conn = new SqlConnection(_conn);
-            SqlTransaction trans = conn.BeginTransaction();
-            SqlCommand comm = new SqlCommand(commandAddRemark.ToString(), conn);
-            conn.Open();
-
-            foreach (var remark in addRemarkParaList.Select((value, index) => new { Value = value, Index = index }))
+            foreach (var reamarkInfo in addRemarkParaDic)
             {
-                comm.Transaction = trans;
-                comm.Parameters.Clear();
-                comm.Parameters.AddWithValue("@WF_NO", remark.Value.WFNo);
-                comm.Parameters.AddWithValue("@SYS_ID", remark.Value.SysID);
-                comm.Parameters.AddWithValue("@WF_FLOW_ID", remark.Value.FlowID);
-                comm.Parameters.AddWithValue("@WF_FLOW_VER", remark.Value.FlowVer);
-                comm.Parameters.AddWithValue("@WF_NODE_ID", remark.Value.WFNodeID);
-                comm.Parameters.AddWithValue("@NODE_NO", remark.Value.NodeNO);
-                comm.Parameters.AddWithValue("@REMARK_USER_ID", remark.Value.RemarkUserID);
-                comm.Parameters.AddWithValue("@UPD_USER_ID", remark.Value.UpdUserID);
-                comm.Parameters.AddWithValue("@REMARK", remark.Value.Remark);
-                comm.ExecuteNonQuery();
+                #region - 取得REMARK基礎編號 -
+                commandAddRemark.AppendLine(string.Join(Environment.NewLine, new object[]
+                {
+                    " SELECT @REMARK_NO = MAX(REMARK_NO)",
+                    "   FROM WF_REMARK",
+                    "  WHERE WF_NO =" + reamarkInfo.Key + ";",
+                    "SET @REMARK_NO = RIGHT('00' + CAST(ISNULL(CAST(@REMARK_NO AS INT), 0) + 1 AS VARCHAR), 3);"
+                }));
+                #endregion
+
+                foreach (var remark in reamarkInfo.Value)
+                {
+                    commandAddRemark.AppendLine(string.Join(Environment.NewLine, new object[]
+                    {
+                        " INSERT INTO WF_REMARK",
+                        "      ( WF_NO",
+                        "      , NODE_NO",
+                        "      , REMARK_NO",
+                        "      , SYS_ID",
+                        "      , WF_FLOW_ID",
+                        "      , WF_FLOW_VER",
+                        "      , WF_NODE_ID",
+                        "      , NODE_RESULT_ID",
+                        "      , BACK_WF_NODE_ID",
+                        "      , SIG_STEP",
+                        "      , WF_SIG_SEQ",
+                        "      , SIG_DATE",
+                        "      , SIG_RESULT_ID",
+                        "      , DOC_NO",
+                        "      , WF_DOC_SEQ",
+                        "      , DOC_DATE",
+                        "      , DOC_IS_DELETE",
+                        "      , REMARK_USER_ID",
+                        "      , REMARK_DATE",
+                        "      , REMARK",
+                        "      , UPD_USER_ID",
+                        "      , UPD_DT",
+                        "      ) ",
+                        " VALUES",
+                        "      ('" + remark.WFNo + "'",
+                        "      , '" + remark.NodeNO + "'",
+                        "      , @REMARK_NO",
+                        "      , '" + remark.SysID + "'",
+                        "      , '" + remark.FlowID + "'",
+                        "      , '" + remark.FlowVer + "'",
+                        "      , '" + remark.WFNodeID + "'",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , NULL",
+                        "      , '" + remark.RemarkUserID + "'",
+                        "      , @NOW_DATETIME",
+                        "      , '" + (string.IsNullOrWhiteSpace(remark.Remark) ? "NULL" : remark.Remark) + "'",
+                        "      , '" + remark.UpdUserID + "'",
+                        "      , GETDATE()",
+                        "      );",
+                        "SET @REMARK_NO = RIGHT('00' + CAST(CAST(@REMARK_NO AS INT) + 1 AS VARCHAR),3);"
+                    }));
+                }
             }
 
-            trans.Commit();
+            SqlCommand comm = new SqlCommand(commandAddRemark.ToString(), conn) { CommandTimeout = 120 };
+
+            Stopwatch sw = new Stopwatch();
+            sw.Reset();
+            sw.Start();
+
+            comm.ExecuteNonQuery();
+
+            sw.Stop();
+            Console.WriteLine(sw.ElapsedMilliseconds);
             conn.Dispose();
             comm.Dispose();
         }

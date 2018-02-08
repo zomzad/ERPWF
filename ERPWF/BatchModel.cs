@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -144,6 +147,7 @@ namespace ERPWF
         #endregion
 
         #region - Property -
+        int remarkNoSource { get; set; }
         public ErpWFLogNode ErpWFLogNodeInfo { get; set; }
         protected WFFlow WFFlowData { get; set; }
         protected List<SignForm> AddSignFormParaList { get; private set; }
@@ -160,6 +164,8 @@ namespace ERPWF
         protected List<EntityBatch.WFSignaturePara> WFSignatureExecaraList { get; set; }
         protected List<EntityBatch.ToEndNodePara> ToEndNodeParaList { get; set; }
         protected List<EntityBatch.NextToNodePara> NextToNodeParaList { get; set; }
+        protected Dictionary<string, List<Recm94>> Recm94Dic { get; set; }
+        protected Dictionary<string, List<LogRecm93>> LogRecm93Dic { get; set; }
         #endregion
 
         #region - Private -
@@ -192,10 +198,19 @@ namespace ERPWF
         /// </summary>
         public void GetAllNecessarySignData()
         {
+            Console.WriteLine("取得ERP所有資料中");
+            Stopwatch sw = new Stopwatch();
+            sw.Reset();
+            sw.Start();
             DataSet signInfoDs = _connERP.GetSerpSignFormInfoList();
 
             SignFormList = signInfoDs.Tables[0].ToList<SignForm>().ToList();
             Recm94List = signInfoDs.Tables[1].ToList<Recm94>().ToList();
+
+            Recm94Dic = Recm94List
+                .GroupBy(x => x.Rec94Form.ToString())
+                .ToDictionary(x => x.Key, x => x.ToList());
+
             var recm93List = signInfoDs.Tables[2].ToList<recm93>();
             var logRecm93List = signInfoDs.Tables[3].ToList<LogRecm93>();
 
@@ -217,7 +232,12 @@ namespace ERPWF
                      Lrec93Mdate = log.Lrec93Mdate,
                      Lrec93Desc = log.Lrec93Desc
                  }).ToList();
+
+            LogRecm93Dic = LogRecm93List.GroupBy(x => x.Lrec93Form.ToString())
+                .ToDictionary(x => x.Key, x => x.ToList());
             #endregion
+            sw.Stop();
+            Console.WriteLine("耗時:" + (sw.ElapsedMilliseconds) + "毫秒\n=====================================");
 
             EditSerpWFData();
         }
@@ -248,7 +268,13 @@ namespace ERPWF
                 }));
                 #endregion
 
+                Console.WriteLine("新增WF單號");
+                Stopwatch sw = new Stopwatch();
+                sw.Reset();
+                sw.Start();
                 var wfNoList = _connUSerp.EditNewWFFlow(NewWFFlowParaList);
+                sw.Stop();
+                Console.WriteLine("耗時:" + (sw.ElapsedMilliseconds) + "毫秒\n=====================================");
 
                 if (BatchAddSerpSignForm(wfNoList))
                 {
@@ -291,7 +317,80 @@ namespace ERPWF
                         UPDDT = sign.UPDDT
                     });
 
-                _connUSerp.AddSignForm(AddSignFormParaList);
+                #region - TVP批次新增聯絡單 -
+
+                #region - 建立SERP聯絡單DataTable資料 -
+                var addSignFormDTList = AddSignFormParaList.Select(sign => new
+                {
+                    sign.SignFormNO,
+                    sign.SignFormWFNO,
+                    sign.SignFormType,
+                    sign.IsDisable,
+                    sign.SignFormSubject,
+                    sign.SignFormReason,
+                    sign.SignFormProcess,
+                    sign.SignFormOrderYear,
+                    sign.SignFormOrderNO,
+                    sign.SignFormItem,
+                    sign.SignFormERPWork,
+                    sign.SignFormBU,
+                    sign.SignFormPeerComp,
+                    sign.SignFormUserID,
+                    sign.SignFormNewUserID,
+                    sign.SignFormNewDT,
+                    sign.UpdUserID,
+                    sign.UPDDT
+                }).ToList();
+                #endregion
+
+                using (SqlConnection connection = new SqlConnection(ConfigurationManager.ConnectionStrings["USERPConnection"].ConnectionString))
+                {
+                    connection.Open();
+
+                    using (SqlCommand cmd = new SqlCommand(
+                    @"IF type_id('[dbo].[SIGFORM_TYPE]') IS NOT NULL
+                    DROP TYPE [dbo].[SIGFORM_TYPE];
+
+                    CREATE TYPE SIGFORM_TYPE AS TABLE
+                    (
+                    	SING_FORM_NO CHAR(14) NOT NULL,
+                    	SING_FORM_WFNO CHAR(14),
+                    	SIGN_FORM_TYPE CHAR(1),
+                    	IS_DISABLE CHAR(1),
+                    	SIGN_FORM_SUBJECT NVARCHAR(100) NOT NULL,
+                    	SIGN_FORM_REASON NVARCHAR(500) NOT NULL,
+                    	SIGN_FORM_PROCESS NVARCHAR(2000) NOT NULL,
+                    	SIGN_FORM_ORDER_YEAR VARCHAR(4),
+                    	SIGN_FORM_ORDER_NO VARCHAR(10),
+                    	SIGN_FORM_ITEM CHAR(3),
+                    	SIGN_FORM_ERPWORK CHAR(3),
+                    	SIGN_FORM_BU CHAR(2),
+                    	SIGN_PEER_COMP VARCHAR(6),
+                    	SING_FORM_USER_ID VARCHAR(6),
+                    	SING_FORM_NEW_USER_ID VARCHAR(6) NOT NULL,
+                    	SING_FORM_NEW_DT DATETIME NOT NULL,
+                    	UPD_USER_ID VARCHAR(50) NOT NULL,
+                    	UPD_DT DATETIME NOT NULL
+                    );", connection))
+                    {
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    using (SqlCommand cmd = new SqlCommand("INSERT INTO ZD223_SIGN_FORM SELECT * FROM @TVPSignFormkData; DROP TYPE [dbo].[SIGFORM_TYPE]", connection))
+                    {
+                        SqlParameter tvp = cmd.Parameters.Add("@TVPSignFormkData", SqlDbType.Structured);
+                        tvp.Value = ListToDatatable(addSignFormDTList);
+                        tvp.TypeName = "SIGFORM_TYPE";
+                        Console.WriteLine("新增聯絡單");
+                        Stopwatch sw = new Stopwatch();
+                        sw.Reset();
+                        sw.Start();
+                        cmd.ExecuteNonQuery();
+                        sw.Stop();
+                        Console.WriteLine("耗時:" + (sw.ElapsedMilliseconds) + "毫秒\n=====================================");
+                    }
+                }
+                #endregion
 
                 return true;
             }
@@ -310,15 +409,16 @@ namespace ERPWF
         /// </summary>
         public void AddWFNodeInfo()
         {
-            var executeNum = 1;
+            Stopwatch sw = new Stopwatch();
+            sw.Reset();
+            sw.Start();
+            Console.WriteLine("依據LOG紀錄建立備註參數(1000張單)");
             AddRemarkParaList = new List<EntityBatch.AddRemarkPara>();
             SetWFSignatureParaList = new List<EntityBatch.SetWFSignaturePara>();
             AddWFRemarkParaList = new List<EntityBatch.AddWFRemarkPara>();
 
             foreach (var signForm in AddSignFormParaList)
             {
-                Console.WriteLine(executeNum++);
-
                 switch (signForm.FSTS)
                 {
                     case "F":
@@ -328,9 +428,9 @@ namespace ERPWF
                         //ERPContactDataTransfer(signForm);
                         break;
                 }
-
-                Console.Clear();
             }
+            sw.Stop();
+            Console.WriteLine("耗時:" + (sw.ElapsedMilliseconds) + "毫秒\n=====================================");
 
             AddRemark();
 
@@ -347,97 +447,40 @@ namespace ERPWF
         /// </summary>
         private void AddRemark()
         {
-            string tempKey = string.Empty;
-            var remarkNo = 2;
-            var reamrkInfoList = new List<RemarkData>();
-
-            var addRemarkParaDic = AddRemarkParaList.GroupBy(o => o.WFNo)
-                                      .ToDictionary(o => o.Key, o => o.ToList().Select(n =>
-                                      {
-                                          if (string.IsNullOrWhiteSpace(tempKey))
-                                          {
-                                              tempKey = o.Key;
-                                          }
-                                          else
-                                          {
-                                              if (tempKey != o.Key)
-                                              {
-                                                  tempKey = o.Key;
-                                                  remarkNo = 2;
-                                              }
-                                          }
-
-                                          return new RemarkData
-                                          {
-                                              WFNo = n.WFNo,
-                                              NodeNO = n.NodeNO,
-                                              RemarkNO = Convert.ToString(remarkNo++).PadLeft(3, '0'),
-                                              SysID = n.SysID,
-                                              WFFlowID = n.FlowID,
-                                              WFFlowVer = n.FlowVer,
-                                              WFNodeID = n.WFNodeID,
-                                              NodeResultID = null,
-                                              BackWFNodeID = null,
-                                              SigStep = null,
-                                              WFSigSeq = null,
-                                              SigDate = null,
-                                              SigResultID = null,
-                                              DocNO = null,
-                                              WFDocSEQ = null,
-                                              DocDate = null,
-                                              DocIsDelete = null,
-                                              RemarkUserID = n.RemarkUserID,
-                                              RemarkDate = DateTime.Now.ToString("yyyyMMddhhmmssfff"),
-                                              Remark = string.IsNullOrWhiteSpace(n.Remark) ? null : n.Remark,
-                                              UpdUserID = n.UpdUserID,
-                                              UpdDT = DateTime.Now
-                                          };
-                                      }).ToList());
-
-            foreach (var remark in addRemarkParaDic)
-            {
-                reamrkInfoList.AddRange(remark.Value.ToList());
-            }
-
-            #region - List轉DataTable -
-            var props = typeof(RemarkData).GetProperties();
-            var remarkDt = new DataTable();
-
-            remarkDt.Columns.AddRange(props.Select(p =>
-                new DataColumn(p.Name,
-                    (p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
-                        ? p.PropertyType.GetGenericArguments()[0]
-                        : p.PropertyType)).ToArray());
-
-            reamrkInfoList.ForEach(remark => remarkDt.LoadDataRow(props.Select(pi => pi.GetValue(remark, null)).ToArray(),true));
-            #endregion
+            var addRemarkList = AddRemarkParaList.Select(n =>
+                new RemarkData
+                {
+                    WFNo = n.WFNo,
+                    NodeNO = n.NodeNO,
+                    RemarkNO = n.RemarkNO,
+                    SysID = n.SysID,
+                    WFFlowID = n.FlowID,
+                    WFFlowVer = n.FlowVer,
+                    WFNodeID = n.WFNodeID,
+                    NodeResultID = null,
+                    BackWFNodeID = null,
+                    SigStep = null,
+                    WFSigSeq = null,
+                    SigDate = null,
+                    SigResultID = null,
+                    DocNO = null,
+                    WFDocSEQ = null,
+                    DocDate = null,
+                    DocIsDelete = null,
+                    RemarkUserID = n.RemarkUserID,
+                    RemarkDate = DateTime.Now.ToString("yyyyMMddhhmmssfff"),
+                    Remark = string.IsNullOrWhiteSpace(n.Remark) ? null : n.Remark,
+                    UpdUserID = n.UpdUserID,
+                    UpdDT = DateTime.Now
+                });
 
             using (SqlConnection connection = new SqlConnection(ConfigurationManager.ConnectionStrings["USERPConnection"].ConnectionString))
             {
-                using (SqlCommand cmd = new SqlCommand("INSERT INTO WF_REMARK SELECT * FROM @TVPRematkData", connection))
-                {
-                    connection.Open();
-                    CreateTvpType(connection);
-                    SqlParameter tvp = cmd.Parameters.Add("@TVPRematkData", SqlDbType.Structured);
-                    tvp.Value = remarkDt;
-                    tvp.TypeName = "REMARK_TYPE";
-                    cmd.ExecuteNonQuery();
-                }
-            }
-        }
-        #endregion
+                connection.Open();
 
-        public void CreateTvpType(SqlConnection conn)
-        {
-            SqlCommand cmd = new SqlCommand
-            {
-                Connection = conn,
-                CommandText =
-                    @"
-                    BEGIN 
-                    TRY DROP TYPE REMARK_TYPE END TRY
-                    BEGIN CATCH
-                    END CATCH
+                using (SqlCommand cmd = new SqlCommand(
+                    @"IF type_id('[dbo].[REMARK_TYPE]') IS NOT NULL
+                    DROP TYPE [dbo].[REMARK_TYPE];
 
                     CREATE TYPE REMARK_TYPE AS TABLE
                     (
@@ -463,14 +506,33 @@ namespace ERPWF
 	                    REMARK NVARCHAR(4000),
 	                    UPD_USER_ID VARCHAR(50),
 	                    UPD_DT DATETIME
-                    );"
-            };
-            cmd.ExecuteNonQuery();
+                    );", connection))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (SqlCommand cmd = new SqlCommand("INSERT INTO WF_REMARK SELECT * FROM @TVPRematkData; DROP TYPE [dbo].[REMARK_TYPE]", connection))
+                {
+                    SqlParameter tvp = cmd.Parameters.Add("@TVPRematkData", SqlDbType.Structured);
+                    tvp.Value = ListToDatatable(addRemarkList);
+                    tvp.TypeName = "REMARK_TYPE";
+
+                    Console.WriteLine("新增備註");
+                    Stopwatch sw = new Stopwatch();
+                    sw.Reset();
+                    sw.Start();
+                    cmd.ExecuteNonQuery();
+                    sw.Stop();
+                    Console.WriteLine("耗時:" + (sw.ElapsedMilliseconds) + "毫秒\n=====================================");
+                }
+            }
         }
+        #endregion
 
         #region - ERP結案聯絡單資料轉移 -
         protected void ERPEndContactDataTransfer(SignForm signForm)
         {
+            remarkNoSource = 2;
             WFFlowData.WFNo = signForm.SignFormWFNO;
             GetSpecificFormNoERPLogInfoList(signForm.Rec93Form.ToString());
 
@@ -497,11 +559,13 @@ namespace ERPWF
                         else
                         {
                             AddRemarkPara("001", user, "ApplySignForm");
+                            remarkNoSource += 1;
                         }
                         break;
 
                     case "5":
                         AddRemarkPara("002", user, "ProcessSignForm");
+                        remarkNoSource += 1;
                         break;
 
                     case "6":
@@ -510,6 +574,7 @@ namespace ERPWF
                     case "B":
                     case "F":
                         AddRemarkPara("003", user, "ApplySignForm");
+                        remarkNoSource += 1;
                         break;
                 }
             }
@@ -659,10 +724,8 @@ namespace ERPWF
         /// <param name="signFromNo"></param>
         private void GetSpecificFormNoERPLogInfoList(string signFromNo)
         {
-            SpecificFormNoRecm94List = Recm94List.Where(r => r.Rec94Form.ToString() == signFromNo)
-                                                 .OrderBy(s => s.Rec94Fsts).ThenBy(s => s.Rec94No).ToList();
-
-            var logRecm93List = LogRecm93List.Where(r => r.Lrec93Form.ToString() == signFromNo);
+            SpecificFormNoRecm94List = Recm94Dic[signFromNo].OrderBy(s => s.Rec94Fsts).ThenBy(s => s.Rec94No).ToList();
+            var logRecm93List = LogRecm93Dic[signFromNo];
 
             SpecificFormNoERPLogInfoList = (from data in logRecm93List
                                             let hasUser = SpecificFormNoRecm94List.Any(sign => data.Lrec93Mstfn.Contains(sign.StfnCname)) //處理紀錄人員是否存在於簽核名單中
@@ -701,6 +764,7 @@ namespace ERPWF
                     WFNo = formNO
                 };
                 var wfFileList = _connERP.CheckWFFile(para);
+                remarkNoSource += wfFileList.Count;
 
                 foreach (var row in wfFileList)
                 {
@@ -779,6 +843,7 @@ namespace ERPWF
             AddRemarkParaList.Add(new EntityBatch.AddRemarkPara
             {
                 WFNo = WFFlowData.WFNo,
+                RemarkNO = Convert.ToString(remarkNoSource).PadLeft(3, '0'),
                 NodeNum = nodeNum,
                 SysID = WFFlowData.SysID,
                 FlowID = WFFlowData.FlowID,
@@ -1219,6 +1284,24 @@ namespace ERPWF
             DescriptionAttribute[] attributes = (DescriptionAttribute[])fi.GetCustomAttributes(typeof(DescriptionAttribute), false);
 
             return (attributes.Length > 0) ? attributes[0].Description : value.ToString();
+        }
+        #endregion
+
+        #region - List轉DataTable -
+        private DataTable ListToDatatable<T>(IEnumerable<T> dataList)
+        {
+            var dt = new DataTable();
+
+            var props = typeof(T).GetProperties();
+            dt.Columns.AddRange(props.Select(p =>
+                new DataColumn(p.Name,
+                    (p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                        ? p.PropertyType.GetGenericArguments()[0]
+                        : p.PropertyType)).ToArray());
+
+            dataList.ToList().ForEach(remark => dt.LoadDataRow(props.Select(pi => pi.GetValue(remark, null)).ToArray(), true));
+
+            return dt;
         }
         #endregion
     }

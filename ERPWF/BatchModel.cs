@@ -892,6 +892,57 @@ namespace ERPWF
         }
         #endregion
 
+        #region - 設定WF簽核名單TVP -
+        /// <summary>
+        /// 設定WF簽核名單
+        /// </summary>
+        /// <returns></returns>
+        private bool SetWFSignatureTVP()
+        {
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(ConfigurationManager.ConnectionStrings["USERPConnection"].ConnectionString))
+                {
+                    connection.Open();
+
+                    using (SqlCommand cmd = new SqlCommand(
+                    @"IF type_id('[dbo].[SETSIGNATURE_TYPE]') IS NOT NULL
+                    DROP TYPE [dbo].[SETSIGNATURE_TYPE];
+
+                    CREATE TYPE SETSIGNATURE_TYPE AS TABLE
+                    (
+
+                    );", connection))
+                    {
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    using (SqlCommand cmd = new SqlCommand("INSERT INTO WF_SIG SELECT * FROM @TVPSignatureData; DROP TYPE [dbo].[SETSIGNATURE_TYPE]", connection))
+                    {
+                        SqlParameter tvp = cmd.Parameters.Add("@TVPSignatureData", SqlDbType.Structured);
+                        tvp.Value = ListToDatatable(SetWFSignatureParaList);
+                        tvp.TypeName = "SETSIGNATURE_TYPE";
+
+                        Console.WriteLine("設定簽核名單");
+                        Stopwatch sw = new Stopwatch();
+                        sw.Reset();
+                        sw.Start();
+                        cmd.ExecuteNonQuery();
+                        sw.Stop();
+                        Console.WriteLine("耗時:" + (sw.ElapsedMilliseconds) + "毫秒\n=====================================");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"{ex.Message} : {WFFlowData.WFNo}");
+                Console.Read();
+            }
+
+            return false;
+        }
+        #endregion
+
         #region - 設定WF簽核名單 -
         /// <summary>
         /// 設定WF簽核名單

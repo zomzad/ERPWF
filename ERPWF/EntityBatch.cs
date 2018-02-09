@@ -30,7 +30,7 @@ namespace ERPWF
                 //取得聯絡單簽核單
                 "SELECT rec93_form AS Rec93Form",
                 "     , REPLICATE('0', 6) + CONVERT(VARCHAR,CM93.rec93_form) AS SignFormNO",
-                "     , CM93.rec93_sts AS IsDisable",
+                "     , CASE WHEN CM93.rec93_sts = '1' THEN 'Y' ELSE 'N' END AS AS IsDisable",
                 "     , CM93.rec93_title AS SignFormSubject",
                 "     , CM96A.r96a_data1 AS SignFormReason",
                 "     , CM96A.r96a_data2 AS SignFormProcess",

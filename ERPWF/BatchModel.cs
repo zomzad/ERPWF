@@ -257,22 +257,30 @@ namespace ERPWF
                 NewWFFlowParaList = new List<EntityBatch.NewWFFlowPara>();
                 NewWFFlowParaList.AddRange(BatchSignFormList.Select(s => new EntityBatch.NewWFFlowPara
                 {
+                    WFNo = s.SignFormNO,
                     SysID = WFFlowData.SysID,
                     FlowID = WFFlowData.FlowID,
                     FlowVer = WFFlowData.FlowVer,
                     Subject = WFFlowData.Subject,
+                    Lot = null,
                     UserID = ConvertUserIDLength(s.SignFormNewUserID),
-                    SignFormNo = s.SignFormNO
+                    EndUserID = null,
+                    NowDT = s.SignFormNewDT.ToString("yyyyMMddhhmmssfff"),
+                    DTEnd = null,
+                    ResultID = "P",
+                    NodeID = "001",
+                    UpdUserID = ConvertUserIDLength(s.SignFormNewUserID),
+                    UPDDT = s.UPDDT
                 }));
-                #endregion
 
                 Console.WriteLine("新增WF單號");
                 Stopwatch sw = new Stopwatch();
                 sw.Reset();
                 sw.Start();
-                var wfNoList = _connUSerp.EditNewWFFlow(NewWFFlowParaList);
+                var wfNoList = _connUSerp.EditNewWFFlow(NewWFFlowParaList, ListToDatatable(NewWFFlowParaList));
                 sw.Stop();
                 Console.WriteLine("耗時:" + (sw.ElapsedMilliseconds) + "毫秒\n=====================================");
+                #endregion
 
                 if (BatchAddSerpSignForm(wfNoList))
                 {
@@ -323,7 +331,7 @@ namespace ERPWF
                     sign.SignFormNO,
                     sign.SignFormWFNO,
                     sign.SignFormType,
-                    sign.IsDisable,
+                    IsDisable = (sign.IsDisable) ? "Y" :"N",
                     sign.SignFormSubject,
                     sign.SignFormReason,
                     sign.SignFormProcess,
